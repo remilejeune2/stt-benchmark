@@ -1,9 +1,9 @@
 """Tests for the Gladia service entries."""
 
 import pytest
+from pipecat.services.gladia.stt import GladiaSTTService
 
 from stt_benchmark.config import reset_config
-from stt_benchmark.gladia_enterprise import GladiaEnterpriseSTTService
 from stt_benchmark.models import ServiceName
 from stt_benchmark.services import (
     STT_SERVICES,
@@ -85,7 +85,7 @@ def test_enterprise_entries_session_settings(monkeypatch, name):
     service = factory()
     settings = service._prepare_settings()
 
-    assert isinstance(service, GladiaEnterpriseSTTService)
+    assert isinstance(service, GladiaSTTService)
     assert service._url == "https://eu1.staging.api.gladia.io/v2/live"
     assert settings["model"] == label.removesuffix(" + end of turn")
     assert settings["endpointing"] == 0.3
@@ -96,6 +96,7 @@ def test_enterprise_entries_session_settings(monkeypatch, name):
     assert "maximum_duration_without_endpointing" not in settings
     assert "pre_processing" not in settings
     assert "streaming_mode" not in settings
+    assert service.end_of_turn_enabled is with_end_of_turn
     if with_end_of_turn:
         assert settings["end_of_turn"] == {}
     else:

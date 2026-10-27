@@ -292,24 +292,25 @@ def create_gladia() -> FrameProcessor:
 # Gladia Enterprise API models: solaria-3-fast supersedes the solaria-1 entry above, and
 # trantoria-1-fast is Gladia's lowest-latency model for voice agents. Each runs with
 # Gladia's endpointing alone and, in the "_eot" entries, with Gladia's end of turn,
-# which holds the final of a turn until the turn ends (see gladia_enterprise.py).
-def _create_gladia_enterprise(model: str, end_of_turn: dict | None = None) -> FrameProcessor:
-    from pipecat.services.gladia.config import LanguageConfig
+# which holds the final of a turn until the turn ends and marks that final finalized.
+def _create_gladia_enterprise(model: str, end_of_turn: bool = False) -> FrameProcessor:
+    from pipecat.services.gladia.config import EndOfTurnConfig, LanguageConfig
+    from pipecat.services.gladia.stt import GladiaSTTService
 
     from stt_benchmark.config import get_config
-    from stt_benchmark.gladia_enterprise import GladiaEnterpriseSTTService
 
-    return GladiaEnterpriseSTTService(
+    api_url = get_config().gladia_enterprise_api_url.rstrip("/")
+    return GladiaSTTService(
         api_key=_get_env("GLADIA_ENTERPRISE_API_KEY"),
-        api_url=get_config().gladia_enterprise_api_url,
-        end_of_turn=end_of_turn,
-        settings=GladiaEnterpriseSTTService.Settings(
+        url=f"{api_url}/v2/live",
+        settings=GladiaSTTService.Settings(
             model=model,
             language_config=LanguageConfig(
                 languages=[Language.EN],
             ),
             endpointing=0.3,
             maximum_duration_without_endpointing=None,
+            end_of_turn=EndOfTurnConfig() if end_of_turn else None,
         ),
     )
 
@@ -319,7 +320,7 @@ def create_gladia_solaria_3_fast() -> FrameProcessor:
 
 
 def create_gladia_solaria_3_fast_eot() -> FrameProcessor:
-    return _create_gladia_enterprise("solaria-3-fast", end_of_turn={})
+    return _create_gladia_enterprise("solaria-3-fast", end_of_turn=True)
 
 
 def create_gladia_trantoria_1_fast() -> FrameProcessor:
@@ -327,7 +328,7 @@ def create_gladia_trantoria_1_fast() -> FrameProcessor:
 
 
 def create_gladia_trantoria_1_fast_eot() -> FrameProcessor:
-    return _create_gladia_enterprise("trantoria-1-fast", end_of_turn={})
+    return _create_gladia_enterprise("trantoria-1-fast", end_of_turn=True)
 
 
 def create_google() -> FrameProcessor:

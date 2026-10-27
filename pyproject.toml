@@ -84,3 +84,7 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore:'audioop' is deprecated:DeprecationWarning",
 ]
+
+[tool.uv.sources]
+# GladiaSTTService end-of-turn support, until it is released in pipecat-ai
+pipecat-ai = { git = "https://github.com/remilejeune2/pipecat-gladia", branch = "feat/gladia-end-of-turn" }
