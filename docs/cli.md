@@ -332,6 +332,14 @@ uv run stt-benchmark wer [OPTIONS]
 | `-m, --model` | TEXT | - | Model name filter |
 | `-f, --force-recalculate` | BOOL | False | Delete existing metrics and recalculate |
 | `-t, --test` | BOOL | False | Use test database (test_results.db) instead of main database |
+| `--judge-provider` | TEXT | anthropic | API serving the judge: `anthropic` or `openrouter` |
+| `--judge-effort` | TEXT | medium (anthropic), high (openrouter) | Judge effort |
+
+Through OpenRouter, the judge decides per request whether to think, at every effort tried
+(never at `medium`); it still writes its alignment out in its answer, as the prompt asks. The
+OpenRouter judge defaults to `high`. Its scores are a different judge from Anthropic's: results
+record `via=openrouter` in their judge label, and the `wer` command never mixes judges within a
+service.
 
 ### Examples
 
@@ -347,6 +355,9 @@ uv run stt-benchmark wer --services deepgram --force-recalculate
 
 # Calculate WER on test database
 uv run stt-benchmark wer --test
+
+# Serve the judge through OpenRouter (OPENROUTER_API_KEY)
+uv run stt-benchmark wer --judge-provider openrouter
 ```
 
 ### What Semantic WER Measures
@@ -505,6 +516,7 @@ This approach is transparent (providers see exactly what was measured) while bei
 | Variable | Required For |
 |----------|--------------|
 | `ANTHROPIC_API_KEY` | `wer` command (Claude) |
+| `OPENROUTER_API_KEY` | `wer --judge-provider openrouter` |
 | `GOOGLE_API_KEY` | `ground-truth` command (Gemini) |
 | `DEEPGRAM_API_KEY` | `run --services deepgram` |
 | `OPENAI_API_KEY` | `run --services openai` |
