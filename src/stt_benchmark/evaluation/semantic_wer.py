@@ -391,6 +391,22 @@ def count_reference_words(text: str) -> int:
     return count
 
 
+def same_words(reference: str, hypothesis: str) -> bool:
+    """Whether two transcriptions have the same words, ignoring case and punctuation.
+
+    Such a hypothesis has no error for the judge to find, so it is scored
+    without calling it. Words are compared as written: any other difference,
+    even one the judge would forgive ("2,000" and "two thousand"), still goes
+    to the judge.
+    """
+
+    def words(text: str) -> list[str]:
+        tokens = (t.strip('.,!?;:"()[]{}…') for t in text.lower().replace("’", "'").split())
+        return [t for t in tokens if any(ch.isalnum() for ch in t)]
+
+    return words(reference) == words(hypothesis)
+
+
 def error_weight(error: dict) -> int:
     """Number of errors one entry of the judge's error list counts for.
 
@@ -489,6 +505,7 @@ JUDGE_FINGERPRINT = hashlib.sha256(
         + json.dumps(CALCULATE_WER_TOOL, sort_keys=True)
         + inspect.getsource(count_reference_words)
         + inspect.getsource(error_weight)
+        + inspect.getsource(same_words)
         + json.dumps([_CONTRACTION_ENDINGS, sorted(_IS_CONTRACTIONS)])
     ).encode()
 ).hexdigest()[:8]
@@ -690,6 +707,9 @@ class SemanticWEREvaluator:
 
         if not hypothesis.strip():
             return self._no_hypothesis_result(reference, session_id, start_time)
+
+        if same_words(reference, hypothesis):
+            return self._exact_match_result(reference, session_id, start_time)
 
         user_prompt = USER_PROMPT_TEMPLATE.format(reference=reference, hypothesis=hypothesis)
 
@@ -922,6 +942,35 @@ class SemanticWEREvaluator:
             deletions=0,
             insertions=words,
             reference_words=0,
+            duration_ms=int((time.time() - start_time) * 1000),
+            num_turns=0,
+            model_used=self.model,
+        )
+        return result, trace
+
+    def _exact_match_result(
+        self, reference: str, session_id: str, start_time: float
+    ) -> tuple[dict, SemanticWERTrace]:
+        """Handle case where the hypothesis has the reference's words."""
+        words = count_reference_words(reference)
+        result = {
+            "wer": 0.0,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "reference_words": words,
+        }
+        trace = SemanticWERTrace(
+            sample_id="",
+            service_name=ServiceName.DEEPGRAM,
+            session_id=session_id,
+            conversation_trace=[],
+            tool_calls=[],
+            wer=0.0,
+            substitutions=0,
+            deletions=0,
+            insertions=0,
+            reference_words=words,
             duration_ms=int((time.time() - start_time) * 1000),
             num_turns=0,
             model_used=self.model,

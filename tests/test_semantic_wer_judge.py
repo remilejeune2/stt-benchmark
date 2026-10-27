@@ -7,6 +7,7 @@ from stt_benchmark.evaluation.semantic_wer import (
     DEFAULT_JUDGE_MODEL,
     SemanticWEREvaluator,
     default_judge_effort,
+    same_words,
 )
 
 
@@ -102,3 +103,41 @@ def test_unknown_provider_is_refused(tmp_path):
 def test_default_effort_depends_on_the_provider():
     assert default_judge_effort("anthropic") == "medium"
     assert default_judge_effort("openrouter") == "high"
+
+
+@pytest.mark.parametrize(
+    ("reference", "hypothesis"),
+    [
+        ("I'd like to book a table.", "i'd like to book a table"),
+        ("Yes, that's right — thanks!", "Yes that’s right, thanks."),
+    ],
+)
+def test_same_words_ignores_case_and_punctuation(reference, hypothesis):
+    assert same_words(reference, hypothesis)
+
+
+@pytest.mark.parametrize(
+    ("reference", "hypothesis"),
+    [
+        ("I'd like to book a table.", "I would like to book a table."),
+        ("It costs 2,000 dollars.", "It costs 2000 dollars."),
+        ("Book a table.", "Book a table for two."),
+        ("Book a table.", "Book table."),
+    ],
+)
+def test_same_words_leaves_other_differences_to_the_judge(reference, hypothesis):
+    assert not same_words(reference, hypothesis)
+
+
+async def test_exact_match_is_scored_without_the_judge(tmp_path):
+    evaluator = make_evaluator(tmp_path)
+
+    async def no_call(*args, **kwargs):
+        raise AssertionError("the judge was called")
+
+    evaluator._api_call = no_call
+    result, trace = await evaluator.evaluate("I'd like a table, please.", "i'd like a table please")
+
+    assert result["wer"] == 0.0
+    assert result["reference_words"] == 6
+    assert trace.num_turns == 0
