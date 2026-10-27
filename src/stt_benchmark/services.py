@@ -289,26 +289,45 @@ def create_gladia() -> FrameProcessor:
     )
 
 
-# solaria-3-fast on the Gladia Enterprise API: supersedes the solaria-1 entry above.
-# The Enterprise API has its own keys, and its address selects the region.
-def create_gladia_solaria_3_fast() -> FrameProcessor:
+# Gladia Enterprise API models: solaria-3-fast supersedes the solaria-1 entry above, and
+# trantoria-1-fast is Gladia's lowest-latency model for voice agents. Each runs with
+# Gladia's endpointing alone and, in the "_eot" entries, with Gladia's end of turn,
+# which holds the final of a turn until the turn ends (see gladia_enterprise.py).
+def _create_gladia_enterprise(model: str, end_of_turn: dict | None = None) -> FrameProcessor:
     from pipecat.services.gladia.config import LanguageConfig
-    from pipecat.services.gladia.stt import GladiaSTTService
 
     from stt_benchmark.config import get_config
+    from stt_benchmark.gladia_enterprise import GladiaEnterpriseSTTService
 
-    api_url = get_config().gladia_enterprise_api_url.rstrip("/")
-    return GladiaSTTService(
+    return GladiaEnterpriseSTTService(
         api_key=_get_env("GLADIA_ENTERPRISE_API_KEY"),
-        url=f"{api_url}/v2/live",
-        settings=GladiaSTTService.Settings(
-            model="solaria-3-fast",
+        api_url=get_config().gladia_enterprise_api_url,
+        end_of_turn=end_of_turn,
+        settings=GladiaEnterpriseSTTService.Settings(
+            model=model,
             language_config=LanguageConfig(
                 languages=[Language.EN],
             ),
-            endpointing=0.64,
+            endpointing=0.3,
+            maximum_duration_without_endpointing=None,
         ),
     )
+
+
+def create_gladia_solaria_3_fast() -> FrameProcessor:
+    return _create_gladia_enterprise("solaria-3-fast")
+
+
+def create_gladia_solaria_3_fast_eot() -> FrameProcessor:
+    return _create_gladia_enterprise("solaria-3-fast", end_of_turn={})
+
+
+def create_gladia_trantoria_1_fast() -> FrameProcessor:
+    return _create_gladia_enterprise("trantoria-1-fast")
+
+
+def create_gladia_trantoria_1_fast_eot() -> FrameProcessor:
+    return _create_gladia_enterprise("trantoria-1-fast", end_of_turn={})
 
 
 def create_google() -> FrameProcessor:
@@ -673,6 +692,24 @@ STT_SERVICES: dict[str, ServiceDefinition] = {
         factory=create_gladia_solaria_3_fast,
         vendor="Gladia",
         model_label="solaria-3-fast",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_solaria_3_fast_eot": ServiceDefinition(
+        factory=create_gladia_solaria_3_fast_eot,
+        vendor="Gladia",
+        model_label="solaria-3-fast + end of turn",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_trantoria_1_fast": ServiceDefinition(
+        factory=create_gladia_trantoria_1_fast,
+        vendor="Gladia",
+        model_label="trantoria-1-fast",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_trantoria_1_fast_eot": ServiceDefinition(
+        factory=create_gladia_trantoria_1_fast_eot,
+        vendor="Gladia",
+        model_label="trantoria-1-fast + end of turn",
         required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
     ),
     "google": ServiceDefinition(
