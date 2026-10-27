@@ -5,12 +5,20 @@ from pipecat.services.gladia.stt import GladiaSTTService
 
 from stt_benchmark.config import reset_config
 from stt_benchmark.models import ServiceName
+from stt_benchmark.pipeline.benchmark_runner import BenchmarkRunner
 from stt_benchmark.services import (
+    GLADIA_SLOW_PROFILE_WINDOW_SECS,
     STT_SERVICES,
+    create_gladia_solaria_3_balanced,
     create_gladia_solaria_3_fast,
     create_gladia_solaria_3_fast_eot,
+    create_gladia_solaria_3_medium,
+    create_gladia_solaria_3_precise,
+    create_gladia_trantoria_1_balanced,
     create_gladia_trantoria_1_fast,
     create_gladia_trantoria_1_fast_eot,
+    create_gladia_trantoria_1_medium,
+    create_gladia_trantoria_1_precise,
 )
 
 ENTERPRISE_ENTRIES = {
@@ -29,6 +37,36 @@ ENTERPRISE_ENTRIES = {
         create_gladia_trantoria_1_fast_eot,
         "trantoria-1-fast + end of turn",
         True,
+    ),
+    ServiceName.GLADIA_SOLARIA_3_MEDIUM: (
+        create_gladia_solaria_3_medium,
+        "solaria-3-medium",
+        False,
+    ),
+    ServiceName.GLADIA_SOLARIA_3_BALANCED: (
+        create_gladia_solaria_3_balanced,
+        "solaria-3-balanced",
+        False,
+    ),
+    ServiceName.GLADIA_SOLARIA_3_PRECISE: (
+        create_gladia_solaria_3_precise,
+        "solaria-3-precise",
+        False,
+    ),
+    ServiceName.GLADIA_TRANTORIA_1_MEDIUM: (
+        create_gladia_trantoria_1_medium,
+        "trantoria-1-medium",
+        False,
+    ),
+    ServiceName.GLADIA_TRANTORIA_1_BALANCED: (
+        create_gladia_trantoria_1_balanced,
+        "trantoria-1-balanced",
+        False,
+    ),
+    ServiceName.GLADIA_TRANTORIA_1_PRECISE: (
+        create_gladia_trantoria_1_precise,
+        "trantoria-1-precise",
+        False,
     ),
 }
 
@@ -127,3 +165,48 @@ def test_solaria_1_stays_runnable_but_is_superseded():
     assert entry.model_label == "solaria-1"
     assert entry.required_env_vars == ["GLADIA_API_KEY"]
     assert not entry.is_current
+
+
+def test_every_model_runs_in_all_four_latency_profiles():
+    labels = {d.model_label for d in STT_SERVICES.values() if d.vendor == "Gladia"}
+
+    for model in ("solaria-3", "trantoria-1"):
+        for profile in ("fast", "medium", "balanced", "precise"):
+            assert f"{model}-{profile}" in labels
+
+
+SLOW_PROFILES = [
+    ServiceName(f"gladia_{model}_{profile}")
+    for model in ("solaria_3", "trantoria_1")
+    for profile in ("medium", "balanced", "precise")
+]
+
+
+@pytest.mark.parametrize("name", SLOW_PROFILES)
+def test_slow_profiles_wait_longer_for_their_final(monkeypatch, name):
+    monkeypatch.setenv("GLADIA_ENTERPRISE_API_KEY", "enterprise-key")
+    entry = STT_SERVICES[name]
+
+    assert entry.transcript_window_secs == GLADIA_SLOW_PROFILE_WINDOW_SECS
+    assert entry.factory()._stt_ttfb_timeout == GLADIA_SLOW_PROFILE_WINDOW_SECS
+    assert BenchmarkRunner().resolve_transcript_window(name) == GLADIA_SLOW_PROFILE_WINDOW_SECS
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        ServiceName.GLADIA_SOLARIA_3_FAST,
+        ServiceName.GLADIA_SOLARIA_3_FAST_EOT,
+        ServiceName.GLADIA_TRANTORIA_1_FAST,
+        ServiceName.GLADIA_TRANTORIA_1_FAST_EOT,
+        ServiceName.DEEPGRAM,
+    ],
+)
+def test_other_services_keep_the_shared_window(monkeypatch, name):
+    monkeypatch.setenv("GLADIA_ENTERPRISE_API_KEY", "enterprise-key")
+    entry = STT_SERVICES[name]
+
+    assert entry.transcript_window_secs is None
+    assert BenchmarkRunner().resolve_transcript_window(name) == 2.0
+    if entry.vendor == "Gladia":
+        assert entry.factory()._stt_ttfb_timeout == 2.0

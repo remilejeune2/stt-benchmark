@@ -170,7 +170,7 @@ class BenchmarkRunner:
             transcription_received=transcription_observer._transcription_received,
             get_last_transcription_time=transcription_observer.get_last_transcription_time,
             max_silence_timeout=self.max_silence_timeout_secs,
-            post_transcription_delay=self.post_transcription_delay_secs,
+            post_transcription_delay=self.resolve_transcript_window(service_name),
         )
 
         vad_processor = VADProcessor(
@@ -256,6 +256,16 @@ class BenchmarkRunner:
             transcription=transcription,
             audio_duration_seconds=sample.duration_seconds,
         )
+
+    def resolve_transcript_window(self, service_name: ServiceName) -> float:
+        """Seconds to keep streaming silence after the last transcript for a service.
+
+        A service whose finals come later than the shared window pins its own
+        (``ServiceDefinition.transcript_window_secs``); anything else uses the
+        runner's ``post_transcription_delay_secs``.
+        """
+        pinned = get_service_definition(service_name.value).transcript_window_secs
+        return pinned if pinned is not None else self.post_transcription_delay_secs
 
     async def benchmark_batch(
         self,
