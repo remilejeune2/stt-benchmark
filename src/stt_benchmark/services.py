@@ -289,6 +289,28 @@ def create_gladia() -> FrameProcessor:
     )
 
 
+# solaria-3-fast on the Gladia Enterprise API: supersedes the solaria-1 entry above.
+# The Enterprise API has its own keys, and its address selects the region.
+def create_gladia_solaria_3_fast() -> FrameProcessor:
+    from pipecat.services.gladia.config import LanguageConfig
+    from pipecat.services.gladia.stt import GladiaSTTService
+
+    from stt_benchmark.config import get_config
+
+    api_url = get_config().gladia_enterprise_api_url.rstrip("/")
+    return GladiaSTTService(
+        api_key=_get_env("GLADIA_ENTERPRISE_API_KEY"),
+        url=f"{api_url}/v2/live",
+        settings=GladiaSTTService.Settings(
+            model="solaria-3-fast",
+            language_config=LanguageConfig(
+                languages=[Language.EN],
+            ),
+            endpointing=0.64,
+        ),
+    )
+
+
 def create_google() -> FrameProcessor:
     from pipecat.services.google.stt import GoogleSTTService
 
@@ -645,6 +667,13 @@ STT_SERVICES: dict[str, ServiceDefinition] = {
         vendor="Gladia",
         model_label="solaria-1",
         required_env_vars=["GLADIA_API_KEY"],
+        is_current=False,
+    ),
+    "gladia_solaria_3_fast": ServiceDefinition(
+        factory=create_gladia_solaria_3_fast,
+        vendor="Gladia",
+        model_label="solaria-3-fast",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
     ),
     "google": ServiceDefinition(
         factory=create_google,

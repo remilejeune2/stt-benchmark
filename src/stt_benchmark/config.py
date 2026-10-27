@@ -34,6 +34,10 @@ class BenchmarkConfig(BaseSettings):
     elevenlabs_api_key: str = Field(default="", alias="ELEVENLABS_API_KEY")
     fal_key: str = Field(default="", alias="FAL_KEY")
     gladia_api_key: str = Field(default="", alias="GLADIA_API_KEY")
+    gladia_enterprise_api_key: str = Field(default="", alias="GLADIA_ENTERPRISE_API_KEY")
+    gladia_enterprise_api_url: str = Field(
+        default="https://eu1.staging.api.gladia.io", alias="GLADIA_ENTERPRISE_API_URL"
+    )
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
     google_application_credentials: str = Field(default="", alias="GOOGLE_APPLICATION_CREDENTIALS")
     gradium_api_key: str = Field(default="", alias="GRADIUM_API_KEY")
