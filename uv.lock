@@ -2914,8 +2914,8 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "0.0.0.dev14517"
-source = { git = "https://github.com/remilejeune2/pipecat-gladia?branch=feat%2Fgladia-end-of-turn#c6d6a55b1408c19a0d1e3ad19acbb072984dd375" }
+version = "0.0.0.dev14520"
+source = { git = "https://github.com/remilejeune2/pipecat-gladia?branch=feat%2Fgladia-end-of-turn#5183fc078e9b3538d3e240a422ac0ccb29fe832d" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
