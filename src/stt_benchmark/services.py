@@ -95,6 +95,12 @@ class ServiceDefinition:
     # context and pass it as the first argument to the factory.
     needs_aiohttp: bool = False
 
+    # Seconds to wait after the end of speech for transcripts, when this service needs
+    # longer than the shared 2 s: both the STT service's TTFS window and how long the
+    # transport keeps streaming silence after the last transcript. A final arriving
+    # later than the window is not measured. None uses the shared 2 s.
+    transcript_window_secs: float | None = None
+
     # False when a newer model entry from the same vendor supersedes this one.
     # Superseded models stay runnable (for reproducibility) but are not the
     # vendor's headline/recommended model.
@@ -286,6 +292,144 @@ def create_gladia() -> FrameProcessor:
                 speech_threshold=0.8,
             ),
         ),
+    )
+
+
+# Gladia Enterprise API models: solaria-3 supersedes the solaria-1 entry above, and
+# trantoria-1 is Gladia's lowest-latency model for voice agents. Each runs in its four
+# latency profiles, from fast (earliest finals) to precise (most accurate), with
+# Gladia's endpointing alone. The "_eot" entries add Gladia's end of turn to the fast
+# profile, Gladia's voice-agent setup: it holds the final of a turn until the turn
+# ends and marks that final finalized. The slower profiles send their final up to
+# about 3.5 s after the end of speech, past the shared 2 s window, so they get 5 s.
+GLADIA_SLOW_PROFILE_WINDOW_SECS = 5.0
+
+
+def _create_gladia_enterprise(
+    model: str,
+    end_of_turn: bool = False,
+    finalize: bool = False,
+    transcript_window_secs: float | None = None,
+) -> FrameProcessor:
+    from pipecat.services.gladia.config import EndOfTurnConfig, LanguageConfig
+    from pipecat.services.gladia.stt import GladiaSTTService
+
+    from stt_benchmark.config import get_config
+
+    api_url = get_config().gladia_enterprise_api_url.rstrip("/")
+    window = {"stt_ttfb_timeout": transcript_window_secs} if transcript_window_secs else {}
+    return GladiaSTTService(
+        api_key=_get_env("GLADIA_ENTERPRISE_API_KEY"),
+        url=f"{api_url}/v2/live",
+        enable_finalize=finalize,
+        **window,
+        settings=GladiaSTTService.Settings(
+            model=model,
+            language_config=LanguageConfig(
+                languages=[Language.EN],
+            ),
+            endpointing=0.3,
+            maximum_duration_without_endpointing=None,
+            end_of_turn=EndOfTurnConfig() if end_of_turn else None,
+        ),
+    )
+
+
+def create_gladia_solaria_3_fast() -> FrameProcessor:
+    return _create_gladia_enterprise("solaria-3-fast")
+
+
+def create_gladia_solaria_3_fast_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise("solaria-3-fast", finalize=True)
+
+
+def create_gladia_solaria_3_fast_eot() -> FrameProcessor:
+    return _create_gladia_enterprise("solaria-3-fast", end_of_turn=True)
+
+
+def create_gladia_solaria_3_medium() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "solaria-3-medium", transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_solaria_3_medium_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "solaria-3-medium", finalize=True, transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_solaria_3_balanced() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "solaria-3-balanced", transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_solaria_3_balanced_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "solaria-3-balanced", finalize=True, transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_solaria_3_precise() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "solaria-3-precise", transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_solaria_3_precise_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "solaria-3-precise", finalize=True, transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_trantoria_1_fast() -> FrameProcessor:
+    return _create_gladia_enterprise("trantoria-1-fast")
+
+
+def create_gladia_trantoria_1_fast_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise("trantoria-1-fast", finalize=True)
+
+
+def create_gladia_trantoria_1_fast_eot() -> FrameProcessor:
+    return _create_gladia_enterprise("trantoria-1-fast", end_of_turn=True)
+
+
+def create_gladia_trantoria_1_medium() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "trantoria-1-medium", transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_trantoria_1_medium_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "trantoria-1-medium", finalize=True, transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_trantoria_1_balanced() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "trantoria-1-balanced", transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_trantoria_1_balanced_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "trantoria-1-balanced",
+        finalize=True,
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    )
+
+
+def create_gladia_trantoria_1_precise() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "trantoria-1-precise", transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
+    )
+
+
+def create_gladia_trantoria_1_precise_finalize() -> FrameProcessor:
+    return _create_gladia_enterprise(
+        "trantoria-1-precise", finalize=True, transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS
     )
 
 
@@ -645,6 +789,127 @@ STT_SERVICES: dict[str, ServiceDefinition] = {
         vendor="Gladia",
         model_label="solaria-1",
         required_env_vars=["GLADIA_API_KEY"],
+        is_current=False,
+    ),
+    "gladia_solaria_3_fast": ServiceDefinition(
+        factory=create_gladia_solaria_3_fast,
+        vendor="Gladia",
+        model_label="solaria-3-fast",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_solaria_3_fast_finalize": ServiceDefinition(
+        factory=create_gladia_solaria_3_fast_finalize,
+        vendor="Gladia",
+        model_label="solaria-3-fast + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_solaria_3_fast_eot": ServiceDefinition(
+        factory=create_gladia_solaria_3_fast_eot,
+        vendor="Gladia",
+        model_label="solaria-3-fast + end of turn",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_solaria_3_medium": ServiceDefinition(
+        factory=create_gladia_solaria_3_medium,
+        vendor="Gladia",
+        model_label="solaria-3-medium",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_solaria_3_medium_finalize": ServiceDefinition(
+        factory=create_gladia_solaria_3_medium_finalize,
+        vendor="Gladia",
+        model_label="solaria-3-medium + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_solaria_3_balanced": ServiceDefinition(
+        factory=create_gladia_solaria_3_balanced,
+        vendor="Gladia",
+        model_label="solaria-3-balanced",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_solaria_3_balanced_finalize": ServiceDefinition(
+        factory=create_gladia_solaria_3_balanced_finalize,
+        vendor="Gladia",
+        model_label="solaria-3-balanced + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_solaria_3_precise": ServiceDefinition(
+        factory=create_gladia_solaria_3_precise,
+        vendor="Gladia",
+        model_label="solaria-3-precise",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_solaria_3_precise_finalize": ServiceDefinition(
+        factory=create_gladia_solaria_3_precise_finalize,
+        vendor="Gladia",
+        model_label="solaria-3-precise + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_trantoria_1_fast": ServiceDefinition(
+        factory=create_gladia_trantoria_1_fast,
+        vendor="Gladia",
+        model_label="trantoria-1-fast",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_trantoria_1_fast_finalize": ServiceDefinition(
+        factory=create_gladia_trantoria_1_fast_finalize,
+        vendor="Gladia",
+        model_label="trantoria-1-fast + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_trantoria_1_fast_eot": ServiceDefinition(
+        factory=create_gladia_trantoria_1_fast_eot,
+        vendor="Gladia",
+        model_label="trantoria-1-fast + end of turn",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+    ),
+    "gladia_trantoria_1_medium": ServiceDefinition(
+        factory=create_gladia_trantoria_1_medium,
+        vendor="Gladia",
+        model_label="trantoria-1-medium",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_trantoria_1_medium_finalize": ServiceDefinition(
+        factory=create_gladia_trantoria_1_medium_finalize,
+        vendor="Gladia",
+        model_label="trantoria-1-medium + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_trantoria_1_balanced": ServiceDefinition(
+        factory=create_gladia_trantoria_1_balanced,
+        vendor="Gladia",
+        model_label="trantoria-1-balanced",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_trantoria_1_balanced_finalize": ServiceDefinition(
+        factory=create_gladia_trantoria_1_balanced_finalize,
+        vendor="Gladia",
+        model_label="trantoria-1-balanced + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_trantoria_1_precise": ServiceDefinition(
+        factory=create_gladia_trantoria_1_precise,
+        vendor="Gladia",
+        model_label="trantoria-1-precise",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
+    ),
+    "gladia_trantoria_1_precise_finalize": ServiceDefinition(
+        factory=create_gladia_trantoria_1_precise_finalize,
+        vendor="Gladia",
+        model_label="trantoria-1-precise + finalize",
+        required_env_vars=["GLADIA_ENTERPRISE_API_KEY"],
+        transcript_window_secs=GLADIA_SLOW_PROFILE_WINDOW_SECS,
     ),
     "google": ServiceDefinition(
         factory=create_google,

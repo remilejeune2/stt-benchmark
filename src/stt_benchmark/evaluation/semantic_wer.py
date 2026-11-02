@@ -391,6 +391,22 @@ def count_reference_words(text: str) -> int:
     return count
 
 
+def same_words(reference: str, hypothesis: str) -> bool:
+    """Whether two transcriptions have the same words, ignoring case and punctuation.
+
+    Such a hypothesis has no error for the judge to find, so it is scored
+    without calling it. Words are compared as written: any other difference,
+    even one the judge would forgive ("2,000" and "two thousand"), still goes
+    to the judge.
+    """
+
+    def words(text: str) -> list[str]:
+        tokens = (t.strip('.,!?;:"()[]{}…') for t in text.lower().replace("’", "'").split())
+        return [t for t in tokens if any(ch.isalnum() for ch in t)]
+
+    return words(reference) == words(hypothesis)
+
+
 def error_weight(error: dict) -> int:
     """Number of errors one entry of the judge's error list counts for.
 
@@ -463,6 +479,20 @@ DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5"
 # transcripts would be judged differently; from "medium" up it thinks on
 # nearly every request.
 DEFAULT_JUDGE_EFFORT = "medium"
+# Through OpenRouter the judge decides per request whether to think, at every effort
+# tried: never at "medium", and on transcripts with differences to weigh from "xhigh".
+# It still writes its alignment out in its answer, as the prompt asks. OpenRouter
+# scores are a different judge from Anthropic's either way: the label says so.
+DEFAULT_OPENROUTER_JUDGE_EFFORT = "high"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+JUDGE_PROVIDERS = ("anthropic", "openrouter")
+
+
+def default_judge_effort(provider: str) -> str:
+    """The judge effort a provider runs at unless one is asked for."""
+    return DEFAULT_OPENROUTER_JUDGE_EFFORT if provider == "openrouter" else DEFAULT_JUDGE_EFFORT
+
+
 # Number of independent judgments per sample; the median one is stored.
 DEFAULT_JUDGE_REPEATS = 1
 
@@ -475,6 +505,7 @@ JUDGE_FINGERPRINT = hashlib.sha256(
         + json.dumps(CALCULATE_WER_TOOL, sort_keys=True)
         + inspect.getsource(count_reference_words)
         + inspect.getsource(error_weight)
+        + inspect.getsource(same_words)
         + json.dumps([_CONTRACTION_ENDINGS, sorted(_IS_CONTRACTIONS)])
     ).encode()
 ).hexdigest()[:8]
@@ -504,26 +535,46 @@ class SemanticWEREvaluator:
         repeats: int = DEFAULT_JUDGE_REPEATS,
         db_path: Path | None = None,
         max_concurrency: int = 50,
+        provider: str = "anthropic",
     ):
+        if provider not in JUDGE_PROVIDERS:
+            raise ValueError(f"Unknown judge provider {provider!r}: use one of {JUDGE_PROVIDERS}")
         self.config = get_config()
         self.model = model
         self.effort = effort
         self.repeats = repeats
+        self.provider = provider
         self.db = Database(db_path=db_path)
         self._api_semaphore = asyncio.Semaphore(max_concurrency)
         # Running token totals across every API call this evaluator makes.
         self.usage: Counter[str] = Counter()
 
-        if not self.config.anthropic_api_key:
-            raise ValueError("ANTHROPIC_API_KEY not set in environment")
+        if provider == "openrouter":
+            if not self.config.openrouter_api_key:
+                raise ValueError("OPENROUTER_API_KEY not set in environment")
+            self.client = anthropic.AsyncAnthropic(
+                base_url=OPENROUTER_BASE_URL,
+                api_key=None,
+                auth_token=self.config.openrouter_api_key,
+            )
+        else:
+            if not self.config.anthropic_api_key:
+                raise ValueError("ANTHROPIC_API_KEY not set in environment")
+            self.client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
 
-        self.client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
+    @property
+    def api_model(self) -> str:
+        """The model id sent to the provider: OpenRouter names Anthropic models its own way."""
+        if self.provider != "openrouter":
+            return self.model
+        return "anthropic/" + re.sub(r"-(\d+)-(\d+)$", r"-\1.\2", self.model)
 
     @property
     def judge(self) -> str:
         """Label identifying this judge configuration, stored with each result."""
         sampling = f"effort={self.effort}" if self.effort else "temperature=0"
-        return f"{self.model} {sampling} repeats={self.repeats} rev={JUDGE_FINGERPRINT}"
+        label = f"{self.model} {sampling} repeats={self.repeats} rev={JUDGE_FINGERPRINT}"
+        return label if self.provider == "anthropic" else f"{label} via={self.provider}"
 
     def _request(self, messages: list[dict], max_tokens: int) -> dict:
         """Build a request payload with the judge's model, thinking, and effort settings."""
@@ -536,7 +587,7 @@ class SemanticWEREvaluator:
         else:
             sampling = {"temperature": 0}
         return {
-            "model": self.model,
+            "model": self.api_model,
             "max_tokens": max_tokens,
             **sampling,
             "system": [
@@ -656,6 +707,9 @@ class SemanticWEREvaluator:
 
         if not hypothesis.strip():
             return self._no_hypothesis_result(reference, session_id, start_time)
+
+        if same_words(reference, hypothesis):
+            return self._exact_match_result(reference, session_id, start_time)
 
         user_prompt = USER_PROMPT_TEMPLATE.format(reference=reference, hypothesis=hypothesis)
 
@@ -888,6 +942,35 @@ class SemanticWEREvaluator:
             deletions=0,
             insertions=words,
             reference_words=0,
+            duration_ms=int((time.time() - start_time) * 1000),
+            num_turns=0,
+            model_used=self.model,
+        )
+        return result, trace
+
+    def _exact_match_result(
+        self, reference: str, session_id: str, start_time: float
+    ) -> tuple[dict, SemanticWERTrace]:
+        """Handle case where the hypothesis has the reference's words."""
+        words = count_reference_words(reference)
+        result = {
+            "wer": 0.0,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "reference_words": words,
+        }
+        trace = SemanticWERTrace(
+            sample_id="",
+            service_name=ServiceName.DEEPGRAM,
+            session_id=session_id,
+            conversation_trace=[],
+            tool_calls=[],
+            wer=0.0,
+            substitutions=0,
+            deletions=0,
+            insertions=0,
+            reference_words=words,
             duration_ms=int((time.time() - start_time) * 1000),
             num_turns=0,
             model_used=self.model,

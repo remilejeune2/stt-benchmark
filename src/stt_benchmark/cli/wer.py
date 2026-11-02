@@ -15,7 +15,13 @@ from rich.progress import (
 from rich.table import Table
 
 from stt_benchmark.config import get_config
-from stt_benchmark.evaluation.semantic_wer import SemanticWEREvaluator
+from stt_benchmark.evaluation.semantic_wer import (
+    DEFAULT_JUDGE_EFFORT,
+    DEFAULT_OPENROUTER_JUDGE_EFFORT,
+    JUDGE_PROVIDERS,
+    SemanticWEREvaluator,
+    default_judge_effort,
+)
 from stt_benchmark.models import ServiceName
 from stt_benchmark.services import parse_services_arg
 from stt_benchmark.storage.database import Database
@@ -59,6 +65,18 @@ def calculate_wer(
         "-t",
         help="Use test database (test_results.db) instead of main database",
     ),
+    judge_provider: str = typer.Option(
+        "anthropic",
+        "--judge-provider",
+        help="API serving the judge: 'anthropic' (ANTHROPIC_API_KEY) or 'openrouter' "
+        "(OPENROUTER_API_KEY). OpenRouter scores are a different judge from Anthropic's",
+    ),
+    judge_effort: str | None = typer.Option(
+        None,
+        "--judge-effort",
+        help=f"Judge effort. Defaults to {DEFAULT_JUDGE_EFFORT} on Anthropic and "
+        f"{DEFAULT_OPENROUTER_JUDGE_EFFORT} on OpenRouter",
+    ),
 ):
     """Calculate semantic WER metrics for transcription results.
 
@@ -74,7 +92,7 @@ def calculate_wer(
     And only counts errors that change meaning for an LLM agent.
 
     Requires:
-    - ANTHROPIC_API_KEY set in environment
+    - ANTHROPIC_API_KEY set in environment (OPENROUTER_API_KEY with --judge-provider openrouter)
     - Ground truth generated (stt-benchmark ground-truth)
     """
     console.print("\n[bold blue]STT Benchmark - Calculate Semantic WER[/bold blue]\n")
@@ -82,11 +100,22 @@ def calculate_wer(
     if test:
         console.print("[yellow]Using test database[/yellow]\n")
 
-    # Check for Anthropic API key
+    if judge_provider not in JUDGE_PROVIDERS:
+        console.print(f"[red]Unknown judge provider {judge_provider!r}[/red]")
+        console.print(f"Use one of: {', '.join(JUDGE_PROVIDERS)}")
+        raise typer.Exit(1)
+    judge_effort = judge_effort or default_judge_effort(judge_provider)
+
+    # Check for the judge's API key
     config = get_config()
-    if not config.anthropic_api_key:
-        console.print("[red]ANTHROPIC_API_KEY not set![/red]")
-        console.print("Set ANTHROPIC_API_KEY in your .env file or environment.")
+    key_name, key = (
+        ("OPENROUTER_API_KEY", config.openrouter_api_key)
+        if judge_provider == "openrouter"
+        else ("ANTHROPIC_API_KEY", config.anthropic_api_key)
+    )
+    if not key:
+        console.print(f"[red]{key_name} not set![/red]")
+        console.print(f"Set {key_name} in your .env file or environment.")
         raise typer.Exit(1)
 
     # Determine database path
@@ -131,7 +160,9 @@ def calculate_wer(
 
         console.print(f"Ground truth coverage: {gt_count}/{sample_count} samples\n")
 
-        evaluator = SemanticWEREvaluator(db_path=db_path)
+        evaluator = SemanticWEREvaluator(
+            effort=judge_effort, db_path=db_path, provider=judge_provider
+        )
         console.print(f"Judge: {evaluator.judge}\n")
 
         console.print("Warming prompt cache...", end=" ")
