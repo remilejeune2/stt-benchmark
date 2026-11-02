@@ -12,6 +12,7 @@ from stt_benchmark.services import (
     create_gladia_solaria_3_balanced,
     create_gladia_solaria_3_fast,
     create_gladia_solaria_3_fast_eot,
+    create_gladia_solaria_3_fast_finalize,
     create_gladia_solaria_3_medium,
     create_gladia_solaria_3_precise,
     create_gladia_trantoria_1_balanced,
@@ -27,6 +28,11 @@ ENTERPRISE_ENTRIES = {
         create_gladia_solaria_3_fast_eot,
         "solaria-3-fast + end of turn",
         True,
+    ),
+    ServiceName.GLADIA_SOLARIA_3_FAST_FINALIZE: (
+        create_gladia_solaria_3_fast_finalize,
+        "solaria-3-fast + finalize",
+        False,
     ),
     ServiceName.GLADIA_TRANTORIA_1_FAST: (
         create_gladia_trantoria_1_fast,
@@ -125,7 +131,7 @@ def test_enterprise_entries_session_settings(monkeypatch, name):
 
     assert isinstance(service, GladiaSTTService)
     assert service._url == "https://eu1.staging.api.gladia.io/v2/live"
-    assert settings["model"] == label.removesuffix(" + end of turn")
+    assert settings["model"] == label.split(" + ")[0]
     assert settings["endpointing"] == 0.3
     assert settings["language_config"] == {"languages": ["en"]}
     assert settings["encoding"] == "wav/pcm"
@@ -135,6 +141,7 @@ def test_enterprise_entries_session_settings(monkeypatch, name):
     assert "pre_processing" not in settings
     assert "streaming_mode" not in settings
     assert service.end_of_turn_enabled is with_end_of_turn
+    assert service._enable_finalize is label.endswith(" + finalize")
     if with_end_of_turn:
         assert settings["end_of_turn"] == {}
     else:
@@ -210,3 +217,24 @@ def test_other_services_keep_the_shared_window(monkeypatch, name):
     assert BenchmarkRunner().resolve_transcript_window(name) == 2.0
     if entry.vendor == "Gladia":
         assert entry.factory()._stt_ttfb_timeout == 2.0
+
+
+FINALIZE_ENTRIES = [
+    (model, profile)
+    for model in ("solaria_3", "trantoria_1")
+    for profile in ("fast", "medium", "balanced", "precise")
+]
+
+
+@pytest.mark.parametrize(("model", "profile"), FINALIZE_ENTRIES)
+def test_every_profile_also_runs_with_finalize(monkeypatch, model, profile):
+    monkeypatch.setenv("GLADIA_ENTERPRISE_API_KEY", "enterprise-key")
+    plain = STT_SERVICES[ServiceName(f"gladia_{model}_{profile}")]
+    entry = STT_SERVICES[ServiceName(f"gladia_{model}_{profile}_finalize")]
+
+    service = entry.factory()
+
+    assert entry.model_label == f"{plain.model_label} + finalize"
+    assert entry.transcript_window_secs == plain.transcript_window_secs
+    assert service._enable_finalize
+    assert service._prepare_settings()["model"] == plain.model_label
